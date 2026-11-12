@@ -209,7 +209,7 @@ open_times = "0;.5;.52;.56;.58"
 def eye_cells(open_):
     g = "O" if open_ else "-"
     xs = " ".join(f"{c * CW + CW / 2:g}" for c in EYE_COLS)
-    return f'<text class="eye" x="{xs}" y="{EYE_ROW * CH + BASE:g}">{g}{g}</text>'
+    return f'<text class="eye" x="{xs}" y="{EYE_ROW * CH + BASE + 1.8:g}">{g}{g}</text>'
 
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW:g} {VH:g}" width="{VW:g}" height="{VH:g}" role="img" aria-label="A night sky over a ridge of pines, drawn in ASCII. Two blue eyes look out from the dark hills.">
@@ -219,7 +219,7 @@ text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation 
 .s0 {{ fill: #46557f; }} .s1 {{ fill: #8fa6dc; }} .s2 {{ fill: #e4ecff; }}
 .r {{ fill: #46558c; }} .h {{ fill: #161c36; }} .b {{ fill: #9cc8ff; }}
 .p0 {{ fill: #3b2d5c; }} .p1 {{ fill: #26406f; }} .p2 {{ fill: #2f5d97; }} .p3 {{ fill: #3f7cbf; }} .p4 {{ fill: #5d9be0; }} .p5 {{ fill: #8cc0f5; }}
-.eye {{ fill: #f2f8ff; font-weight: 700; }}
+.eye {{ fill: #ffffff; font-size: 15px; font-weight: 800; }}
 .t1 {{ animation: tw 4.1s ease-in-out infinite; }}
 .t2 {{ animation: tw 5.3s ease-in-out -1.7s infinite; }}
 .t3 {{ animation: tw 6.7s ease-in-out -3.1s infinite; }}
@@ -231,14 +231,14 @@ text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation 
     <stop offset="0" stop-color="#05070f"/><stop offset=".7" stop-color="#0a1024"/><stop offset="1" stop-color="#070a16"/>
   </linearGradient>
   <radialGradient id="halo">
-    <stop offset="0" stop-color="{EYE}" stop-opacity=".45"/><stop offset="1" stop-color="{EYE}" stop-opacity="0"/>
+    <stop offset="0" stop-color="{EYE}" stop-opacity=".7"/><stop offset="1" stop-color="{EYE}" stop-opacity="0"/>
   </radialGradient>
   <radialGradient id="fade" cx="{ecx:g}" cy="{ecy:g}" r="{VW * 0.75:g}" gradientUnits="userSpaceOnUse">
     <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
   </radialGradient>
   <filter id="bloom" x="-100%" y="-100%" width="300%" height="300%">
-    <feGaussianBlur stdDeviation="{CW * 0.45:g}" result="b"/>
-    <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <feGaussianBlur stdDeviation="{CW * 0.7:g}" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
   <mask id="cone" maskUnits="userSpaceOnUse" x="0" y="0" width="{VW:g}" height="{VH:g}">
     <path d="{cone}" fill="url(#fade)">
@@ -258,7 +258,7 @@ text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation 
 <g>
   <animateTransform attributeName="transform" type="translate" dur="18s" repeatCount="indefinite"
     calcMode="spline" values="{glance}" keyTimes="{glance_times}" keySplines="{glance_splines}"/>
-  <ellipse cx="{ecx:g}" cy="{ecy:g}" rx="{CW * 4.5:g}" ry="{CH * 2:g}" fill="url(#halo)"/>
+  <ellipse cx="{ecx:g}" cy="{ecy:g}" rx="{CW * 6:g}" ry="{CH * 2.6:g}" fill="url(#halo)"/>
   <g filter="url(#bloom)">
     <g>
       <animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" values="1;0;1;0;1" keyTimes="{open_times}"/>
