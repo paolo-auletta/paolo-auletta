@@ -1,5 +1,5 @@
 <a href="https://paolo.sh">
-  <img src="assets/night-tiles.svg" width="100%" alt="A night sky over a ridge of pines, drawn in ASCII. Two blue eyes look out from the dark hills and now and then sweep a searchlight across the stars." />
+  <img src="assets/night.svg" width="100%" alt="A night sky over a ridge of pines, drawn in ASCII. Two blue eyes look out from the dark hills and now and then sweep a searchlight across the stars." />
 </a>
 
 ### Ciao, I'm Paolo
