@@ -203,13 +203,22 @@ rot = lambda a: f"{a} {ecx:g} {ecy:g}"
 glance = ";".join(f"{v * CW:g} 0" for v in (0, 0, -1, -1, 0.8, 0.8, 0, 0))
 glance_times = "0;.1;.18;.38;.48;.7;.8;1"
 glance_splines = ";".join([".5 0 .5 1"] * 7)
-open_times = "0;.5;.52;.56;.58"
+# A blink closes each lamp onto its own center (its height animates, nothing
+# is scaled), so the eyes never move up or down.
+EYE_R = 4.6
+blink = ";".join(f"{v:g}" for v in (EYE_R, EYE_R, 0.7, EYE_R, EYE_R, 0.7, EYE_R, EYE_R))
+blink_times = "0;.5;.515;.535;.56;.575;.595;1"
 
 
-def eye_cells(open_):
-    g = "O" if open_ else "-"
-    xs = " ".join(f"{c * CW + CW / 2:g}" for c in EYE_COLS)
-    return f'<text class="eye" x="{xs}" y="{EYE_ROW * CH + BASE + 1.8:g}">{g}{g}</text>'
+def eyes():
+    out = []
+    for c in EYE_COLS:
+        out.append(
+            f'<ellipse class="eye" cx="{c * CW + CW / 2:g}" cy="{ecy:g}" rx="{EYE_R:g}" ry="{EYE_R:g}">'
+            f'<animate attributeName="ry" dur="9s" repeatCount="indefinite" values="{blink}" keyTimes="{blink_times}"/>'
+            "</ellipse>"
+        )
+    return "".join(out)
 
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW:g} {VH:g}" width="{VW:g}" height="{VH:g}" role="img" aria-label="A night sky over a ridge of pines, drawn in ASCII. Two blue eyes look out from the dark hills.">
@@ -219,7 +228,7 @@ text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation 
 .s0 {{ fill: #46557f; }} .s1 {{ fill: #8fa6dc; }} .s2 {{ fill: #e4ecff; }}
 .r {{ fill: #46558c; }} .h {{ fill: #161c36; }} .b {{ fill: #9cc8ff; }}
 .p0 {{ fill: #3b2d5c; }} .p1 {{ fill: #26406f; }} .p2 {{ fill: #2f5d97; }} .p3 {{ fill: #3f7cbf; }} .p4 {{ fill: #5d9be0; }} .p5 {{ fill: #8cc0f5; }}
-.eye {{ fill: #ffffff; font-size: 15px; font-weight: 800; }}
+.eye {{ fill: #ffffff; }}
 .t1 {{ animation: tw 4.1s ease-in-out infinite; }}
 .t2 {{ animation: tw 5.3s ease-in-out -1.7s infinite; }}
 .t3 {{ animation: tw 6.7s ease-in-out -3.1s infinite; }}
@@ -259,16 +268,7 @@ text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation 
   <animateTransform attributeName="transform" type="translate" dur="18s" repeatCount="indefinite"
     calcMode="spline" values="{glance}" keyTimes="{glance_times}" keySplines="{glance_splines}"/>
   <ellipse cx="{ecx:g}" cy="{ecy:g}" rx="{CW * 6:g}" ry="{CH * 2.6:g}" fill="url(#halo)"/>
-  <g filter="url(#bloom)">
-    <g>
-      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" values="1;0;1;0;1" keyTimes="{open_times}"/>
-      {eye_cells(True)}
-    </g>
-    <g opacity="0">
-      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" values="0;1;0;1;0" keyTimes="{open_times}"/>
-      {eye_cells(False)}
-    </g>
-  </g>
+  <g filter="url(#bloom)">{eyes()}</g>
 </g>
 </svg>
 '''
