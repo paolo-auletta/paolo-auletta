@@ -1,47 +1,50 @@
 """
 Turns the dark homepage of paolo.sh (the Iron Giant's night: stars, the
-ridge, the pines) into an animated ASCII SVG for the GitHub profile README.
+ridge, the pines, his eyes) into an animated SVG for the GitHub profile.
 
-Every glyph is placed on an explicit grid (one x per character), so the
-picture holds together whatever monospace font the viewer's browser picks.
-Animation is plain CSS + SMIL, which GitHub serves fine inside an <img>.
+Two styles:
+  ascii  the scene in plain glyphs
+  tiles  the land, the pines and the eyes as colored tiles with a letter
+         in each; the sky stays plain glyphs
 
-usage: python3 -I scripts/night.py <night-world.webp> <night-mattes.webp> <out.svg> [preview.png]
+Every glyph sits on an explicit grid (one x per character), so the picture
+holds together whatever monospace font the viewer's browser picks.
+Animation is CSS + SMIL, which GitHub plays inside an <img>.
+
+usage: python3 -I scripts/night.py <ascii|tiles> <night-world.webp> <night-mattes.webp> <out.svg>
 """
 
-import math
 import random
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
-WORLD, MATTES, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
-PREVIEW = sys.argv[4] if len(sys.argv) > 4 else None
+STYLE, WORLD, MATTES, OUT = sys.argv[1:5]
+assert STYLE in ("ascii", "tiles")
 
-# The resting part of the world: its bottom 1100 px, as on the site.
-PHOTO_H = 1100
+PHOTO_H = 1100  # the resting part of the world: its bottom 1100 px
 CROP_TOP = 120  # mostly empty sky above this
-COLS = 150
-CW, CH = 6.0, 11.0  # cell size in SVG units
-FONT = 10
+EYES = (1180, 712 - CROP_TOP)  # where his eyes open on a wide screen
+EYE = "#7cb8ff"
+STARS = 34  # how many of the painting's stars to keep, brightest first
+
+if STYLE == "ascii":
+    COLS, CW, CH, FONT = 150, 6.0, 11.0, 10
+else:
+    COLS, CW, CH, FONT = 80, 12.0, 12.0, 9
 
 random.seed(7)
 
 world = Image.open(WORLD).convert("RGB")
 W, H = world.size
 photo = world.crop((0, H - PHOTO_H + CROP_TOP, W, H))
-mattes = Image.open(MATTES).convert("RGB").resize((W, PHOTO_H), Image.BILINEAR).crop((0, CROP_TOP, W, PHOTO_H))
+mattes = (
+    Image.open(MATTES).convert("RGB").resize((W, PHOTO_H), Image.BILINEAR).crop((0, CROP_TOP, W, PHOTO_H))
+)
 PW, PH = photo.size
 ROWS = round(COLS * (PH / PW) * (CW / CH))
 cell_w, cell_h = PW / COLS, PH / ROWS
-
-px = photo.load()
-mx = mattes.load()
-
-# Where his eyes open on a wide screen (the landing), in photo pixels.
-EYES = (1180, 712 - CROP_TOP)
-
-SKY, LAND, PINE = 0, 1, 2
+px, mx = photo.load(), mattes.load()
 
 
 def lum(c):
@@ -49,238 +52,285 @@ def lum(c):
 
 
 def sample(col, row):
-    """Coverage of land and pines in a cell, per quadrant, and the pines' light."""
+    """Land and pine coverage per quadrant, the pines' colors, the brightest star."""
     x0, y0 = col * cell_w, row * cell_h
     n = 6
-    land = [[0] * 2 for _ in range(2)]
-    pine = [[0] * 2 for _ in range(2)]
+    land = [[0, 0], [0, 0]]
+    pine = [[0, 0], [0, 0]]
     light = []
-    star = 0.0
     for j in range(n):
         for i in range(n):
             x = min(PW - 1, int(x0 + (i + 0.5) * cell_w / n))
             y = min(PH - 1, int(y0 + (j + 0.5) * cell_h / n))
             r, g, _ = mx[x, y]
-            q = (j * 2 // n, i * 2 // n)
-            c = px[x, y]
+            qy, qx = j * 2 // n, i * 2 // n
             if g > 128:
-                pine[q[0]][q[1]] += 1
-                light.append(c)
+                pine[qy][qx] += 1
+                light.append(px[x, y])
             elif r > 128:
-                land[q[0]][q[1]] += 1
-    # Stars are a pixel or two wide: look at every pixel of a sky cell.
+                land[qy][qx] += 1
+    star = 0.0
     for y in range(int(y0), min(PH, int(y0 + cell_h))):
         for x in range(int(x0), min(PW, int(x0 + cell_w))):
             if mx[x, y][0] < 100:
                 star = max(star, lum(px[x, y]))
     q = (n // 2) ** 2
-    land = [[v / q for v in r] for r in land]
-    pine = [[v / q for v in r] for r in pine]
-    return land, pine, light, star
+    return [[v / q for v in r] for r in land], [[v / q for v in r] for r in pine], light, star
 
 
-# --- Build the grid -----------------------------------------------------------
-
-cells = {}  # (col, row) -> (glyph, class)
-info = {}
-for row in range(ROWS):
-    for col in range(COLS):
-        info[col, row] = sample(col, row)
+info = {(c, r): sample(c, r) for r in range(ROWS) for c in range(COLS)}
 
 
 def cover(col, row):
-    if not (0 <= col < COLS and 0 <= row < ROWS):
+    if (col, row) not in info:
         return 0, 0
     land, pine, _, _ = info[col, row]
     return sum(map(sum, land)) / 4, sum(map(sum, pine)) / 4
 
 
-PINE_RAMP = ":;=+*#%@"
-for (col, row), (land, pine, light, star) in info.items():
+def solid(col, row):
+    return sum(cover(col, row))
+
+
+ex, ey = EYES[0] / cell_w, EYES[1] / cell_h
+# The eyes on the grid: one cell each, two cells apart.
+EYE_ROW = int(ey)
+EYE_COLS = (round(ex) - 2, round(ex) + 1) if STYLE == "ascii" else (round(ex) - 1, round(ex) + 1)
+
+
+def near_eyes(col, row):
+    if STYLE == "ascii":
+        return EYE_COLS[0] - 4 <= col <= EYE_COLS[1] + 4 and abs(row - EYE_ROW) <= 1
+    return EYE_COLS[0] - 3 <= col <= EYE_COLS[1] + 3 and abs(row - EYE_ROW) <= 1
+
+
+# --- Stars: only the brightest few of the painting's ---------------------------
+
+stars = {}
+candidates = sorted(
+    ((s, c, r) for (c, r), (_, _, _, s) in info.items() if solid(c, r) < 0.05 and s > 50),
+    reverse=True,
+)
+for rank, (s, c, r) in enumerate(candidates[:STARS]):
+    if any(abs(c - c2) <= 1 and abs(r - r2) <= 1 for c2, r2 in stars):
+        continue
+    g = "+" if rank < 8 else "*" if rank < 20 else "."
+    tone = 2 if rank < 8 else 1 if rank < 20 else 0
+    stars[c, r] = (g, f"s{tone} t{random.randint(1, 3)}")
+# A handful of faint ones, as on the site.
+for _ in range(10):
+    c, r = random.randrange(COLS), random.randrange(ROWS)
+    if solid(c, r) == 0 and solid(c, r + 1) == 0 and (c, r) not in stars:
+        stars[c, r] = (".", f"s0 t{random.randint(1, 3)}")
+
+# --- Land and pines --------------------------------------------------------------
+
+glyphs = dict(stars)  # (col, row) -> (glyph, class): plain text cells
+tiles = {}  # (col, row) -> (fill, letter, letter fill)
+
+ASCII_RAMP = ":;=+*#%@"
+PINE_FILLS = ["#251f40", "#2c2a55", "#283c69", "#2b5288", "#356ba8", "#4c88c8", "#78ade6"]
+TILE_LETTERS = [":.", "%:", "%S", "SX%", "X8S", "8X@", "@8"]
+
+
+def mix(hex_a, hex_b, t):
+    a = [int(hex_a[i : i + 2], 16) for i in (1, 3, 5)]
+    b = [int(hex_b[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+
+
+for (col, row), (land, pine, light, _) in info.items():
+    if near_eyes(col, row):
+        continue
     lc = sum(map(sum, land)) / 4
     pc = sum(map(sum, pine)) / 4
-    solid = lc + pc
+    above = solid(col, row - 1)
 
     if pc > 0.3:
-        # Pines: their glyph is their light, their edges are slopes.
         L = sum(lum(c) for c in light) / max(1, len(light))
-        b = sum(c[2] for c in light) / max(1, len(light))
-        top = pine[0][0] + pine[0][1]
-        bot = pine[1][0] + pine[1][1]
-        left = pine[0][0] + pine[1][0]
-        right = pine[0][1] + pine[1][1]
-        above = cover(col, row - 1)[1]
         k = min(1, max(0, (L - 16) / 34))
-        if above < 0.15 and top < bot * 0.7:
-            g = "^" if abs(left - right) < 0.6 else ("/" if left < right else "\\")
-            tone = 4
+        top, bot = pine[0][0] + pine[0][1], pine[1][0] + pine[1][1]
+        left, right = pine[0][0] + pine[1][0], pine[0][1] + pine[1][1]
+        if STYLE == "tiles":
+            level = min(6, int(k * 7))
+            fill = PINE_FILLS[level]
+            ink = mix(fill, "#ffffff", 0.38) if level < 4 else mix(fill, "#000000", 0.4)
+            tip = cover(col, row - 1)[1] < 0.15 and top < bot * 0.7
+            tiles[col, row] = (fill, "^" if tip else random.choice(TILE_LETTERS[level]), ink)
+            continue
+        if cover(col, row - 1)[1] < 0.15 and top < bot * 0.7:
+            g, tone = ("^" if abs(left - right) < 0.6 else "/" if left < right else "\\"), 4
         elif left < right * 0.45:
             g, tone = "/", 2 + round(k * 2)
         elif right < left * 0.45:
             g, tone = "\\", 2 + round(k * 2)
         else:
-            g = PINE_RAMP[min(len(PINE_RAMP) - 1, int(k * len(PINE_RAMP)))]
-            tone = min(5, int(k * 5.5))
-            # The painted needles: shadow in the trees reads violet.
-            if k < 0.2:
-                tone = 0
-        cells[col, row] = (g, f"p{tone}")
-    elif solid > 0.12:
-        # The ridge: its skyline drawn, its body a dim weave.
-        above = sum(cover(col, row - 1))
-        top = land[0][0] + land[0][1] + pine[0][0] + pine[0][1]
-        bot = land[1][0] + land[1][1] + pine[1][0] + pine[1][1]
-        if above < 0.5:
-            left = land[0][0] + land[1][0]
-            right = land[0][1] + land[1][1]
-            if solid < 0.45:
+            g = ASCII_RAMP[min(len(ASCII_RAMP) - 1, int(k * len(ASCII_RAMP)))]
+            tone = 0 if k < 0.2 else min(5, int(k * 5.5))
+        glyphs[col, row] = (g, f"p{tone}")
+    elif lc + pc > 0.12:
+        left = land[0][0] + land[1][0]
+        right = land[0][1] + land[1][1]
+        top = land[0][0] + land[0][1]
+        bot = land[1][0] + land[1][1]
+        skyline = above < 0.5
+        if STYLE == "tiles":
+            if lc + pc < 0.5:
+                # Half a tile of hill: drawn as a loose glyph, like the edges of the fish.
+                glyphs[col, row] = ("." if bot > top else "'", "r")
+            elif skyline:
+                tiles[col, row] = ("#1d2546", random.choice("^-~"), "#4a5890")
+            else:
+                depth = min(1, (row - EYE_ROW + 12) / 30)
+                fill = mix("#141b36", "#0c1024", max(0, depth))
+                tiles[col, row] = (fill, random.choice(".:") if random.random() < 0.5 else "", mix(fill, "#ffffff", 0.16))
+            continue
+        if skyline:
+            if lc + pc < 0.45:
                 g = "." if bot > top else "'"
                 if left < 0.2 and right > 0.5:
                     g = ","
-                elif right < 0.2 and left > 0.5:
-                    g = "."
             elif left < right * 0.5:
                 g = "/"
             elif right < left * 0.5:
                 g = "\\"
             else:
                 g = "^" if top < bot * 0.6 and random.random() < 0.25 else "~" if random.random() < 0.3 else "-"
-            cells[col, row] = (g, "r")
-        else:
-            # Deeper in, fainter: the hills fall into the dark.
-            if (col + row) % 2 == 0:
-                cells[col, row] = ("." if random.random() < 0.8 else ":", "h")
-    elif star > 88:
-        g = "+" if star > 150 else "*" if star > 100 else "."
-        tw = random.choice(["t1", "t2", "t3", "t4"])
-        cells[col, row] = (g, f"s{0 if star < 90 else 1 if star < 150 else 2} {tw}")
+            glyphs[col, row] = (g, "r")
+        elif (col + row) % 2 == 0:
+            glyphs[col, row] = ("." if random.random() < 0.8 else ":", "h")
 
-# A few faint extra stars in the empty sky, as on the site.
-for _ in range(40):
-    col, row = random.randrange(COLS), random.randrange(ROWS)
-    if (col, row) in cells:
-        continue
-    lc, pc = cover(col, row)
-    if lc + pc > 0 or any(sum(cover(col, r)) > 0 for r in range(row, min(ROWS, row + 2))):
-        continue
-    cells[col, row] = (random.choice("..`'"), f"s0 {random.choice(['t1', 't2', 't3', 't4'])}")
+# --- SVG -------------------------------------------------------------------------
 
-# The eyes: clear their cells so the lamps sit on the dark.
-ex, ey = EYES[0] / cell_w, EYES[1] / cell_h
-GAP = 1.5  # half the distance between the eyes, in columns
-for dc in range(-4, 5):
-    for dr in range(-1, 2):
-        cells.pop((int(ex) + dc, int(ey) + dr), None)
-
-# --- Write the SVG ------------------------------------------------------------
-
-VW, VH = COLS * CW, ROWS * CH + 4
-EYE = "#7cb8ff"
-ex_svg, ey_svg = ex * CW, ey * CH
-
-groups = {}
-for (col, row), (g, cls) in cells.items():
-    groups.setdefault((row, cls), []).append((col, g))
+VW, VH = COLS * CW, ROWS * CH
+BASE = CH * 0.74 if STYLE == "ascii" else CH * 0.7
 
 
 def esc(ch):
     return {"<": "&lt;", ">": "&gt;", "&": "&amp;"}.get(ch, ch)
 
 
-rows_svg = []
-for (row, cls), items in sorted(groups.items()):
-    items.sort()
-    xs = " ".join(f"{c * CW + CW / 2:g}" for c, _ in items)
-    text = "".join(esc(g) for _, g in items)
-    rows_svg.append(f'<text class="{cls}" x="{xs}" y="{row * CH + CH * 0.78:g}">{text}</text>')
+def text_rows(cells, cls_of=lambda v: v[1], glyph_of=lambda v: v[0]):
+    groups = {}
+    for (col, row), v in cells.items():
+        g = glyph_of(v)
+        if g:
+            groups.setdefault((row, cls_of(v)), []).append((col, g))
+    out = []
+    for (row, cls), items in sorted(groups.items()):
+        items.sort()
+        xs = " ".join(f"{c * CW + CW / 2:g}" for c, _ in items)
+        attr = f'class="{cls}"' if not cls.startswith("#") else f'fill="{cls}"'
+        out.append(f'<text {attr} x="{xs}" y="{row * CH + BASE:g}">{"".join(esc(g) for _, g in items)}</text>')
+    return "\n".join(out)
 
-# The beam: a searchlight from the eyes, made of the same glyphs, swinging
-# slowly across the sky now and then. A mask shows it only inside the cone.
-beam_cells = []
+
+def tile_paths():
+    by_fill = {}
+    for (col, row), (fill, _, _) in tiles.items():
+        by_fill.setdefault(fill, []).append((col, row))
+    g = 1.0  # the gap between tiles
+    s = CW - g
+    out = []
+    for fill, cells in sorted(by_fill.items()):
+        d = "".join(f"M{c * CW + g / 2:g} {r * CH + g / 2:g}h{s:g}v{s:g}h-{s:g}z" for c, r in sorted(cells))
+        out.append(f'<path fill="{fill}" d="{d}"/>')
+    return "\n".join(out)
+
+
+# The searchlight: the same glyphs, shown only inside a cone that swings from
+# his eyes across the sky now and then.
+ecx = (EYE_COLS[0] + EYE_COLS[1] + 1) / 2 * CW
+ecy = (EYE_ROW + 0.5) * CH
+beam = {}
 for row in range(ROWS):
     for col in range(COLS):
-        if (col, row) in cells:
-            continue
-        if sum(cover(col, row)) > 0.05:
-            continue
-        if row > ey:
-            continue
-        r = random.random()
-        if r < 0.55:
-            beam_cells.append((col, row, ".:-=+"[min(4, int(random.random() ** 1.6 * 5))]))
-beam_rows = {}
-for col, row, g in beam_cells:
-    beam_rows.setdefault(row, []).append((col, g))
-beam_svg = []
-for row, items in sorted(beam_rows.items()):
-    xs = " ".join(f"{c * CW + CW / 2:g}" for c, _ in items)
-    beam_svg.append(f'<text x="{xs}" y="{row * CH + CH * 0.78:g}">{"".join(g for _, g in items)}</text>')
+        if row < EYE_ROW and (col, row) not in glyphs and (col, row) not in tiles and solid(col, row) < 0.05:
+            if random.random() < 0.5:
+                beam[col, row] = (".:-=+"[min(4, int(random.random() ** 1.6 * 5))], "b")
+L = VW * 1.3
+cone = f"M{ecx:g} {ecy:g} L{ecx - L * 0.14:g} {ecy - L:g} L{ecx + L * 0.14:g} {ecy - L:g} Z"
+spline = ";".join([".4 0 .6 1"] * 5)
+rot = lambda a: f"{a} {ecx:g} {ecy:g}"
 
-beam_len = VW * 1.3
-cone = f"M{ex_svg:g} {ey_svg:g} L{ex_svg - beam_len * 0.14:g} {ey_svg - beam_len:g} L{ex_svg + beam_len * 0.14:g} {ey_svg - beam_len:g} Z"
+# The eyes: they glance from cell to cell (whole cells, no sliding) and blink.
+glance = "0 0;-1 0;-1 0;1 0;1 0;0 0;-1 0;0 0;1 0;1 0;0 0".split(";")
+glance = ";".join(f"{float(v.split()[0]) * CW:g} 0" for v in glance)
+glance_times = "0;.12;.27;.31;.43;.47;.6;.66;.74;.9;.95"
+open_times = "0;.5;.52;.56;.58"
+
+
+def eye_cells(open_):
+    if STYLE == "ascii":
+        g = "O" if open_ else "-"
+        xs = " ".join(f"{c * CW + CW / 2:g}" for c in EYE_COLS)
+        return f'<text class="eye" x="{xs}" y="{EYE_ROW * CH + BASE:g}">{g}{g}</text>'
+    out = []
+    for c in EYE_COLS:
+        fill, ink, g = (EYE, "#f2f8ff", "O") if open_ else ("#2a4a7a", "#7cb8ff", "-")
+        out.append(f'<rect x="{c * CW + 0.5:g}" y="{EYE_ROW * CH + 0.5:g}" width="{CW - 1:g}" height="{CH - 1:g}" fill="{fill}"/>')
+        out.append(f'<text fill="{ink}" x="{c * CW + CW / 2:g}" y="{EYE_ROW * CH + BASE:g}" font-weight="700">{g}</text>')
+    return "".join(out)
+
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW:g} {VH:g}" width="{VW:g}" height="{VH:g}" role="img" aria-label="A night sky over a ridge of pines, drawn in ASCII. Two blue eyes look out from the dark hills.">
-<title>The Giant's night, in ASCII</title>
+<title>The Giant's night</title>
 <style>
 text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: {FONT}px; text-anchor: middle; }}
-.s0 {{ fill: #4a5a8c; }} .s1 {{ fill: #8fa6dc; }} .s2 {{ fill: #dfe9ff; }}
-.r {{ fill: #46558c; }} .h {{ fill: #161c36; }}
+.s0 {{ fill: #46557f; }} .s1 {{ fill: #8fa6dc; }} .s2 {{ fill: #e4ecff; }}
+.r {{ fill: #46558c; }} .h {{ fill: #161c36; }} .b {{ fill: #9cc8ff; }}
 .p0 {{ fill: #3b2d5c; }} .p1 {{ fill: #26406f; }} .p2 {{ fill: #2f5d97; }} .p3 {{ fill: #3f7cbf; }} .p4 {{ fill: #5d9be0; }} .p5 {{ fill: #8cc0f5; }}
+.eye {{ fill: #f2f8ff; font-weight: 700; }}
 .t1 {{ animation: tw 4.1s ease-in-out infinite; }}
 .t2 {{ animation: tw 5.3s ease-in-out -1.7s infinite; }}
 .t3 {{ animation: tw 6.7s ease-in-out -3.1s infinite; }}
-@keyframes tw {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: .25; }} }}
-.beam text {{ fill: #9cc8ff; }}
-.eye {{ fill: #eef6ff; }}
+@keyframes tw {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: .3; }} }}
 @media (prefers-reduced-motion: reduce) {{ * {{ animation: none !important; }} }}
 </style>
 <defs>
-  <radialGradient id="glow">
-    <stop offset="0" stop-color="{EYE}" stop-opacity=".85"/>
-    <stop offset=".35" stop-color="{EYE}" stop-opacity=".28"/>
-    <stop offset="1" stop-color="{EYE}" stop-opacity="0"/>
-  </radialGradient>
   <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#05070f"/>
-    <stop offset=".7" stop-color="#0a1024"/>
-    <stop offset="1" stop-color="#070a16"/>
+    <stop offset="0" stop-color="#05070f"/><stop offset=".7" stop-color="#0a1024"/><stop offset="1" stop-color="#070a16"/>
   </linearGradient>
-  <radialGradient id="fade" cx="{ex_svg:g}" cy="{ey_svg:g}" r="{VW * 0.75:g}" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="#fff"/>
-    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  <radialGradient id="halo">
+    <stop offset="0" stop-color="{EYE}" stop-opacity=".45"/><stop offset="1" stop-color="{EYE}" stop-opacity="0"/>
   </radialGradient>
+  <radialGradient id="fade" cx="{ecx:g}" cy="{ecy:g}" r="{VW * 0.75:g}" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="bloom" x="-100%" y="-100%" width="300%" height="300%">
+    <feGaussianBlur stdDeviation="{CW * 0.45:g}" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
   <mask id="cone" maskUnits="userSpaceOnUse" x="0" y="0" width="{VW:g}" height="{VH:g}">
     <path d="{cone}" fill="url(#fade)">
       <animateTransform attributeName="transform" type="rotate" dur="18s" repeatCount="indefinite"
-        values="-58 {ex_svg:g} {ey_svg:g};-58 {ex_svg:g} {ey_svg:g};-20 {ex_svg:g} {ey_svg:g};30 {ex_svg:g} {ey_svg:g};52 {ex_svg:g} {ey_svg:g};52 {ex_svg:g} {ey_svg:g}"
-        keyTimes="0;.42;.6;.78;.92;1" calcMode="spline"
-        keySplines=".4 0 .6 1;.4 0 .6 1;.4 0 .6 1;.4 0 .6 1;.4 0 .6 1"/>
+        values="{rot(-58)};{rot(-58)};{rot(-20)};{rot(30)};{rot(52)};{rot(52)}"
+        keyTimes="0;.42;.6;.78;.92;1" calcMode="spline" keySplines="{spline}"/>
     </path>
   </mask>
 </defs>
 <rect width="100%" height="100%" fill="url(#sky)"/>
-<g class="beam" mask="url(#cone)" opacity="0">
+<g mask="url(#cone)" opacity="0">
   <animate attributeName="opacity" dur="18s" repeatCount="indefinite"
     values="0;0;.05;.9;.35;.9;.75;0;0" keyTimes="0;.43;.45;.47;.49;.52;.88;.93;1"/>
-  {"".join(beam_svg)}
+{text_rows(beam)}
 </g>
-{"".join(rows_svg)}
+{tile_paths()}
+{text_rows({k: v for k, v in tiles.items() if v[1]}, cls_of=lambda v: v[2], glyph_of=lambda v: v[1])}
+{text_rows(glyphs)}
 <g>
   <animateTransform attributeName="transform" type="translate" dur="18s" repeatCount="indefinite"
-    values="0 0;0 0;-5 -1;-5 -1;4 0;4 0;-3 -2;-3 -2;3 -2;6 -1;6 -1;0 0"
-    keyTimes="0;.1;.14;.26;.3;.4;.46;.6;.75;.88;.94;1" calcMode="spline"
-    keySplines=".5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1;.5 0 .5 1"/>
-  <g>
-    <animate attributeName="opacity" dur="18s" repeatCount="indefinite"
-      values=".75;1;.8;1;.85;1;.75" keyTimes="0;.2;.45;.5;.55;.8;1"/>
-    <circle cx="{ex_svg - GAP * CW:g}" cy="{ey_svg:g}" r="{CW * 2.6:g}" fill="url(#glow)"/>
-    <circle cx="{ex_svg + GAP * CW:g}" cy="{ey_svg:g}" r="{CW * 2.6:g}" fill="url(#glow)"/>
-  </g>
-  <g>
-    <animateTransform attributeName="transform" type="scale" additive="sum" dur="9s" repeatCount="indefinite"
-      values="1 1;1 1;1 .1;1 1;1 1;1 .1;1 1;1 1" keyTimes="0;.5;.515;.53;.56;.575;.59;1"/>
-    <ellipse class="eye" cx="{ex_svg - GAP * CW:g}" cy="{ey_svg:g}" rx="{CW * 0.55:g}" ry="{CW * 0.55:g}"/>
-    <ellipse class="eye" cx="{ex_svg + GAP * CW:g}" cy="{ey_svg:g}" rx="{CW * 0.55:g}" ry="{CW * 0.55:g}"/>
+    calcMode="discrete" values="{glance}" keyTimes="{glance_times}"/>
+  <ellipse cx="{ecx:g}" cy="{ecy:g}" rx="{CW * 4.5:g}" ry="{CH * 2:g}" fill="url(#halo)"/>
+  <g filter="url(#bloom)">
+    <g>
+      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" values="1;0;1;0;1" keyTimes="{open_times}"/>
+      {eye_cells(True)}
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" values="0;1;0;1;0" keyTimes="{open_times}"/>
+      {eye_cells(False)}
+    </g>
   </g>
 </g>
 </svg>
@@ -288,26 +338,4 @@ text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation 
 
 with open(OUT, "w") as f:
     f.write(svg)
-print(f"{COLS}x{ROWS} grid, {len(cells)} glyphs, {len(svg) / 1024:.0f} KB")
-
-# --- Preview ------------------------------------------------------------------
-if PREVIEW:
-    S = 2
-    colors = {
-        "s0": "#4a5a8c", "s1": "#8fa6dc", "s2": "#dfe9ff", "r": "#46558c", "h": "#161c36",
-        "p0": "#3b2d5c", "p1": "#26406f", "p2": "#2f5d97", "p3": "#3f7cbf", "p4": "#5d9be0", "p5": "#8cc0f5",
-    }
-    img = Image.new("RGB", (int(VW * S), int(VH * S)), "#070a16")
-    d = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", int(FONT * S))
-    except OSError:
-        font = ImageFont.load_default()
-    for (col, row), (g, cls) in cells.items():
-        d.text(((col * CW + CW / 2) * S, (row * CH + CH * 0.78) * S), g, fill=colors[cls.split()[0]], font=font, anchor="ms")
-    for sx in (-GAP, GAP):
-        cx, cy = (ex_svg + sx * CW) * S, ey_svg * S
-        rr = CW * 0.55 * S
-        d.ellipse((cx - rr * 2.4, cy - rr * 2.4, cx + rr * 2.4, cy + rr * 2.4), fill="#16284a")
-        d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill="#eef6ff")
-    img.save(PREVIEW)
+print(f"{STYLE}: {COLS}x{ROWS}, {len(stars)} stars, {len(tiles)} tiles, {len(glyphs)} glyphs, {len(svg) / 1024:.0f} KB")
