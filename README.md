@@ -7,7 +7,7 @@
 I'm a 19 y/o [student](https://www.unibocconi.it/en/programs/bachelor-science/management-and-computer-science) who cares about craft and detail. Now I'm bringing that to AI research, especially **mechanistic interpretability** and **automated research**.
 
 Currently, I'm doing research at [Sapienza](https://www.uniroma1.it/en) and managing [BAINSA](https://bainsa.ai).\
-Recently, I've also been listening to <!--music-->[_Cloud Nine_](https://paolo.sh/music)<!--/music-->, and watching <!--movie-->[_The Aristocats_](https://paolo.sh/movies)<!--/movie-->.
+Recently, I've also been listening to <!--music-->[_Cloud Nine_](https://paolo.sh/music)<!--/music-->, and watching <!--movie-->[_Wild Horse Nine_](https://paolo.sh/movies)<!--/movie-->.
 
 **Here are some of my projects and research:**
 
